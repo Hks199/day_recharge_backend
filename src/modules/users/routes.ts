@@ -1,0 +1,14 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { permit, wrap } from '../../middleware/security.js';
+import { input, person } from '../../validators/index.js';
+import * as users from './service.js';
+export const userRoutes = Router();
+userRoutes.post('/distributors', permit('SUPER_ADMIN'), wrap(async (req, res) => { res.status(201).json(await users.createUser(req, input(req, person), 'DISTRIBUTOR')); }));
+userRoutes.post('/retailers', permit('SUPER_ADMIN', 'DISTRIBUTOR'), wrap(async (req, res) => { res.status(201).json(await users.createUser(req, input(req, person), 'RETAILER')); }));
+userRoutes.get('/', wrap(async (req, res) => { res.json(await users.userList(req)); }));
+userRoutes.get('/downline', permit('SUPER_ADMIN', 'DISTRIBUTOR'), wrap(async (req, res) => { res.json(await users.userList(req, req.user!._id.toString())); }));
+userRoutes.get('/:id/downline', permit('SUPER_ADMIN', 'DISTRIBUTOR'), wrap(async (req, res) => { res.json(await users.userList(req, String(req.params.id))); }));
+userRoutes.get('/:id', wrap(async (req, res) => { res.json(await users.accessible(req, String(req.params.id))); }));
+userRoutes.patch('/:id', permit('SUPER_ADMIN', 'DISTRIBUTOR'), wrap(async (req, res) => { res.json(await users.updateUser(req, String(req.params.id), input(req, z.object({ name: person.shape.name.optional(), phone: person.shape.phone.optional() }).strict()))); }));
+userRoutes.patch('/:id/status', permit('SUPER_ADMIN', 'DISTRIBUTOR'), wrap(async (req, res) => { res.json(await users.updateUser(req, String(req.params.id), input(req, z.object({ status: z.enum(['ACTIVE', 'BLOCKED']) }).strict()))); }));

@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { permit, wrap } from '../../middleware/security.js';
+import { input, page } from '../../validators/index.js';
+import { Ticket, Audit } from '../../models/index.js';
+import { oid, ensure } from '../../utils/core.js';
+export const supportRoutes = Router();
+supportRoutes.post('/', wrap(async (req, res) => { const b = input(req, z.object({ subject: z.string().min(5).max(150), message: z.string().min(10).max(5000) }).strict()); res.status(201).json(await Ticket.create({ tenantId: req.user!.tenantId, userId: req.user!._id, ...b })); }));
+supportRoutes.get('/', wrap(async (req, res) => { const p = page(req); res.json(await Ticket.find({ tenantId: req.user!.tenantId, ...(req.user!.role === 'SUPER_ADMIN' ? {} : { userId: req.user!._id }) }).sort({ createdAt: -1 }).skip((p.page - 1) * p.limit).limit(p.limit)); }));
+supportRoutes.patch('/:id', permit('SUPER_ADMIN'), wrap(async (req, res) => { const b = input(req, z.object({ status: z.enum(['OPEN', 'CLOSED']), response: z.string().min(1).max(5000) }).strict()); const ticket = await Ticket.findOneAndUpdate({ _id: oid(String(req.params.id)), tenantId: req.user!.tenantId }, { $set: b }, { returnDocument: 'after' }); ensure(ticket, 404, 'TICKET_NOT_FOUND'); await Audit.create({ tenantId: req.user!.tenantId, actorId: req.user!._id, action: 'SUPPORT_RESPONSE', targetId: String(ticket._id) }); res.json(ticket); }));

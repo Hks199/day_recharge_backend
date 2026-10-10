@@ -1,0 +1,13 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { permit, wrap } from '../../middleware/security.js';
+import { input, page } from '../../validators/index.js';
+import { CommissionRule, Commission, Audit } from '../../models/index.js';
+import { oid, ensure } from '../../utils/core.js';
+import { ruleInput } from './validation.js';
+import { createRule } from './service.js';
+export const commissionRoutes = Router();
+commissionRoutes.post('/rules', permit('SUPER_ADMIN'), wrap(async (req, res) => { res.status(201).json(await createRule(req, input(req, ruleInput))); }));
+commissionRoutes.get('/rules', permit('SUPER_ADMIN'), wrap(async (req, res) => { const p = page(req); res.json(await CommissionRule.find({ tenantId: req.user!.tenantId }).skip((p.page - 1) * p.limit).limit(p.limit)); }));
+commissionRoutes.patch('/rules/:id', permit('SUPER_ADMIN'), wrap(async (req, res) => { const b = input(req, z.object({ status: z.literal('INACTIVE') }).strict()); const rule = await CommissionRule.findOneAndUpdate({ _id: oid(String(req.params.id)), tenantId: req.user!.tenantId }, { $set: b }, { returnDocument: 'after' }); ensure(rule, 404, 'RULE_NOT_FOUND'); await Audit.create({ tenantId: req.user!.tenantId, actorId: req.user!._id, action: 'COMMISSION_RULE_DISABLE', targetId: String(rule._id) }); res.json(rule); }));
+commissionRoutes.get('/records', wrap(async (req, res) => { const p = page(req); res.json(await Commission.find({ tenantId: req.user!.tenantId, ...(req.user!.role === 'SUPER_ADMIN' ? {} : { beneficiaryUserId: req.user!._id }) }).sort({ createdAt: -1 }).skip((p.page - 1) * p.limit).limit(p.limit)); }));

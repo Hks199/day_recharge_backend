@@ -1,0 +1,15 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { permit, wrap } from '../../middleware/security.js';
+import { input, key, page } from '../../validators/index.js';
+import { Transaction, Operator } from '../../models/index.js';
+import { ensure, oid } from '../../utils/core.js';
+import { transactionFilter } from '../reports/service.js';
+import { rechargeInput } from './validation.js';
+import { createRecharge, reverseRecharge } from './service.js';
+export const rechargeRoutes = Router();
+rechargeRoutes.get('/operators', wrap(async (_req, res) => { res.json(await Operator.find({ enabled: true }).select('-commissionBudgetBps')); }));
+rechargeRoutes.post('/', permit('RETAILER'), wrap(async (req, res) => { res.status(202).json(await createRecharge(req, input(req, rechargeInput), key(req))); }));
+rechargeRoutes.get('/', wrap(async (req, res) => { const p = page(req), filter = await transactionFilter(req); res.json({ data: await Transaction.find(filter).sort({ createdAt: -1, _id: -1 }).skip((p.page - 1) * p.limit).limit(p.limit), total: await Transaction.countDocuments(filter), ...p }); }));
+rechargeRoutes.get('/:id', wrap(async (req, res) => { const transaction = await Transaction.findOne({ ...await transactionFilter(req), _id: oid(String(req.params.id)) }); ensure(transaction, 404, 'TRANSACTION_NOT_FOUND'); res.json(transaction); }));
+rechargeRoutes.post('/:id/reverse', permit('SUPER_ADMIN'), wrap(async (req, res) => { const b = input(req, z.object({ reason: z.string().min(10).max(300), providerReversalConfirmed: z.literal(true) }).strict()); res.json(await reverseRecharge(req, String(req.params.id), b.reason)); }));
