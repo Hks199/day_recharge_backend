@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { person } from './validators/index.js';
 import { provisionInput } from './modules/platform/service.js';
 import { rechargeInput } from './modules/recharges/validation.js';
+import { websiteInput } from './modules/website/schema.js';
 type Json = Record<string, unknown>;
 const str = { type: 'string' }, id = { type: 'string', pattern: '^[a-fA-F0-9]{24}$' }, date = { type: 'string', format: 'date-time' };
 const money = { type: 'integer', minimum: 0, maximum: 1_000_000_000_000, description: 'INR paise, integer only.' };
@@ -59,6 +60,11 @@ function route(method: string, path: string, summary: string, response: Json, bo
 }
 for (const path of ['/health', '/ready']) route('get', path, path === '/ready' ? 'MongoDB and Redis readiness' : 'Process liveness', obj({ status: str }), undefined, { public: true });
 route('get', '/api/public/tenant-config', 'Public branding from verified domain; active subscription required', ref('PublicConfig'), undefined, { public: true });
+for (const prefix of ['/api', '/api/platform']) route('get', `${prefix}/public/website`, 'Public website branding and content; domain scoped', obj({ revision: { type: 'integer' }, brand: obj({}), values: obj({}) }), undefined, { public: true });
+for (const prefix of ['/api/tenant', '/api/platform']) {
+  route('get', `${prefix}/website`, 'Owner reads website and editable field definitions', obj({}));
+  route('patch', `${prefix}/website`, 'Owner publishes website; stale revision returns 409', obj({}), serialize(websiteInput));
+}
 for (const prefix of ['/api/auth', '/api/platform/auth']) {
   route('post', `${prefix}/login`, 'Login and set HTTP-only refresh cookie', ref('SessionResult'), obj({ email: { type: 'string', format: 'email' }, password: str }, ['email', 'password']), { public: true });
   route('post', `${prefix}/refresh`, 'Rotate refresh cookie; reuse revokes token family', ref('SessionResult'), undefined, { csrf: true });

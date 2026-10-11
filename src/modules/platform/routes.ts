@@ -1,9 +1,11 @@
 import { Router } from 'express';
+import { readWebsite, saveWebsite } from '../website/service.js';
+import { WebsiteContent } from '../../models/website-content.model.js';
 import { z } from 'zod';
 import { authenticate, permit, wrap } from '../../middleware/security.js';
 import { input, id, page } from '../../validators/index.js';
 import { Plan, Tenant, Subscription, Audit, Provider, Operator, Transaction, TenantDomain, PlatformSettings } from '../../models/index.js';
-import { ensure, oid } from '../../utils/core.js';
+import { ensure, oid, atomic } from '../../utils/core.js';
 import { services } from '../../constants/index.js';
 import { addDomain, verifyDomain, primaryDomain } from '../domains/service.js';
 import { approveFunding } from '../wallets/service.js';
@@ -11,6 +13,8 @@ import { provision, provisionInput, assignSubscription } from './service.js';
 export const platformRoutes = Router();
 platformRoutes.use(authenticate, permit('DEVELOPER'));
 platformRoutes.use((req, _res, next) => { void Audit.create({ actorId: req.user!._id, action: `PLATFORM_${req.method}`, targetId: req.path, requestId: req.requestId }).then(() => next(), next); });
+platformRoutes.get('/website', wrap(async (req, res) => { res.json(await readWebsite(req, true)); }));
+platformRoutes.patch('/website', wrap(async (req, res) => { res.json(await saveWebsite(req)); }));
 platformRoutes.get('/plans', wrap(async (_req, res) => { res.json(await Plan.find().limit(100)); }));
 const planInput = z.object({ name: z.string().min(2).max(100), priceMinor: z.number().int().min(0).max(1000000000), durationDays: z.number().int().min(1).max(3660), features: z.array(z.string().max(64)).max(50) }).strict();
 platformRoutes.post('/plans', wrap(async (req, res) => { const plan = await Plan.create(input(req, planInput)); await Audit.create({ actorId: req.user!._id, action: 'PLAN_CREATE', targetId: String(plan._id) }); res.status(201).json(plan); }));
@@ -30,7 +34,14 @@ platformRoutes.get('/audit-logs', wrap(async (req, res) => { const p = page(req)
 platformRoutes.post('/tenants/:id/funding-requests/:fundingId/decision', wrap(async (req, res) => { const b = input(req, z.object({ approve: z.boolean() }).strict()); res.json(await approveFunding(req, String(req.params.id), String(req.params.fundingId), b.approve)); }));
 platformRoutes.get('/providers', wrap(async (_req, res) => { res.json(await Provider.find()); }));
 platformRoutes.get('/settings', wrap(async (_req, res) => { res.json(await PlatformSettings.findOne({ key: 'GLOBAL' })); }));
-platformRoutes.patch('/settings', wrap(async (req, res) => { const b = input(req, z.object({ enabledServices: z.array(z.enum(services)).max(5), maxRechargeMinor: z.number().int().positive().max(1_000_000_000), supportEmail: z.email().optional() }).strict()); res.json(await PlatformSettings.findOneAndUpdate({ key: 'GLOBAL' }, { $set: b }, { upsert: true, returnDocument: 'after', runValidators: true })); }));
+platformRoutes.patch('/settings', wrap(async (req, res) => {
+  const b = input(req, z.object({ enabledServices: z.array(z.enum(services)).max(5), maxRechargeMinor: z.number().int().positive().max(1_000_000_000), supportEmail: z.email().optional() }).strict());
+  const result = await atomic(async session => {
+    const settings = await PlatformSettings.findOneAndUpdate({ key: 'GLOBAL' }, { $set: b }, { upsert: true, returnDocument: 'after', runValidators: true, session });
+    if (b.supportEmail !== undefined) await WebsiteContent.updateOne({ _id: 'platform' }, { $set: { 'brand.support.email': b.supportEmail }, $inc: { revision: 1 } }, { session });
+    return settings;
+  }); res.json(result);
+}));
 platformRoutes.post('/providers', wrap(async (req, res) => { const b = input(req, z.object({ name: z.string().max(100), code: z.literal('MOCK'), enabled: z.boolean() }).strict()); const provider = await Provider.create(b); await Audit.create({ actorId: req.user!._id, action: 'PROVIDER_CREATE', targetId: String(provider._id) }); res.status(201).json(provider); }));
 platformRoutes.patch('/providers/:id', wrap(async (req, res) => { const provider = await Provider.findByIdAndUpdate(oid(String(req.params.id)), { $set: input(req, z.object({ enabled: z.boolean() }).strict()) }, { returnDocument: 'after' }); ensure(provider, 404, 'PROVIDER_NOT_FOUND'); await Audit.create({ actorId: req.user!._id, action: 'PROVIDER_UPDATE', targetId: String(provider._id) }); res.json(provider); }));
 platformRoutes.post('/operators', wrap(async (req, res) => {

@@ -13,6 +13,8 @@ Node.js 24, strict TypeScript, Express 5, MongoDB/Mongoose, Redis/BullMQ, Argon2
 
 Local Node processes can connect to Compose MongoDB using `mongodb://127.0.0.1:27017/day_recharge?replicaSet=rs0&directConnection=true`. The replica set advertises the Compose service name `mongo`, so use directConnection for host-side development. If ports are occupied set MONGO_PORT, REDIS_PORT or API_PORT in `.env` and update the corresponding host-side connection URLs. Run `npm run dev` and `npm run worker` in separate terminals if running outside Docker; avoid occupying port 3000 with both Docker API and local API. This workspace's generated local environment uses MongoDB port 27018 because 27017 was already occupied.
 
+Before running `npm run dev` on the host, start Docker Desktop and run `docker compose up -d mongo mongo-init redis`. This starts the database replica set and Redis without starting the Docker API or worker. Check `docker compose ps -a`: `mongo` and `redis` should be healthy and `mongo-init` should exit with code 0. An `ECONNREFUSED 127.0.0.1:27018` error means the configured MongoDB host port has no listening server; start these services and confirm `MONGO_PORT` matches the port in `MONGODB_URI`. The separate Windows MongoDB service on port 27017 is a standalone server and does not satisfy this app's replica set requirement.
+
 ## Protected bootstrap
 
 Set `BOOTSTRAP_NAME`, `BOOTSTRAP_EMAIL`, `BOOTSTRAP_PHONE`, `BOOTSTRAP_PASSWORD` in the process environment. Passwords must have 12–128 characters. Run `npm run bootstrap` outside Docker, or pass these environment variables with `docker compose exec -e BOOTSTRAP_NAME -e BOOTSTRAP_EMAIL -e BOOTSTRAP_PHONE -e BOOTSTRAP_PASSWORD api node dist/scripts/bootstrap.js`. Clear the password from the environment afterwards. Do not put credentials in source files or command history. Bootstrap refuses to run if a Developer exists. There is no public registration endpoint.
@@ -46,5 +48,7 @@ Tests create an ephemeral MongoDB replica set; no development or production data
 Read [architecture](docs/ARCHITECTURE.md), [database](docs/DATABASE.md), [API](docs/API_SPEC.md), [permissions](docs/RBAC.md), [tenant resolution](docs/TENANT_RESOLUTION.md), [wallet policy](docs/WALLET_AND_LEDGER.md), [recharge flow](docs/RECHARGE_FLOW.md), [deployment](docs/DEPLOYMENT.md), [security](docs/SECURITY.md), and [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Integration boundaries
+
+Public website content is now managed through the owner dashboard. See [website content and editor setup](docs/PUBLIC_WEBSITE.md) for collection design, scoped public/admin APIs, editing, and version handling.
 
 Only MOCK payments and mock bill fetch are implemented. Live recharge/BBPS connectivity and compliance certification require a real provider agreement, documented adapter, credentials and integration verification. No endpoints or credentials are invented. Password reset requires an internal authenticated delivery endpoint configured in `.env`; it returns 503 until configured. Subscription assignment is administrative; automatic card collection, GST invoices and bank settlement imports are outside this backend. Production deployment requires authenticated infrastructure, TLS, backups, monitoring and a security review.

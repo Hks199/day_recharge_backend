@@ -1,4 +1,5 @@
 export { User } from "./user.model.js";
+export { WebsiteContent } from "./website-content.model.js";
 export type { UserData } from "./user.model.js";
 export { Tenant } from "./tenant.model.js";
 export { TenantDomain } from "./tenant-domain.model.js";

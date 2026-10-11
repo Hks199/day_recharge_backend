@@ -24,6 +24,7 @@ import { supportRoutes } from './modules/support/routes.js';
 import { dashboard } from './modules/reports/service.js';
 import { webhook } from './modules/recharges/webhook.js';
 import { openapi } from './openapi.js';
+import { readWebsite } from './modules/website/service.js';
 
 export function createApp(readiness?: () => Promise<void>) {
   const app = express();
@@ -48,15 +49,19 @@ export function createApp(readiness?: () => Promise<void>) {
   app.get('/api/openapi.json', (_req, res) => res.json(openapi));
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openapi));
   app.post('/api/webhooks/mock', express.raw({ type: 'application/json', limit: '32kb' }), wrap(webhook));
+  app.use(['/api/platform/website', '/api/tenant/website'], express.json({ limit: '256kb' }));
   app.use(express.json({ limit: '32kb' }), cookieParser());
   app.use('/api/platform', platformHost);
+  app.get('/api/platform/public/website', wrap(async (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.json(await readWebsite(req)); }));
   app.use('/api/platform/auth', authRoutes());
   app.use('/api/platform', platformRoutes);
   app.use('/api', resolveTenant);
+  app.get('/api/public/website', wrap(async (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.json(await readWebsite(req)); }));
   app.get('/api/public/tenant-config', wrap(async (req, res) => {
     const tenant = req.tenant!, settings = await TenantSettings.findOne({ tenantId: tenant._id });
     const domain = await TenantDomain.findOne({ tenantId: tenant._id, primary: true, verifiedAt: { $exists: true } });
-    res.json({ name: tenant.name, logo: tenant.branding?.logo, primaryColor: tenant.branding?.primaryColor, secondaryColor: tenant.branding?.secondaryColor, domain: domain?.hostname, features: settings?.publicFeatures ?? [], support: { email: settings?.supportEmail, phone: settings?.supportPhone } });
+    const { brand } = await readWebsite(req);
+    res.json({ name: brand.name, logo: brand.logo, primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor, domain: domain?.hostname, features: settings?.publicFeatures ?? [], support: brand.support });
   }));
   app.use('/api/auth', authRoutes());
   app.use('/api', authenticate);

@@ -1,22 +1,36 @@
 import { Router } from 'express';
+import { readWebsite, saveWebsite } from '../website/service.js';
+import { WebsiteContent } from '../../models/website-content.model.js';
+import { imageUrl } from '../website/schema.js';
 import { z } from 'zod';
 import { permit, wrap } from '../../middleware/security.js';
 import { input } from '../../validators/index.js';
 import { Tenant, TenantDomain, TenantSettings, Audit } from '../../models/index.js';
 import { addDomain, verifyDomain, primaryDomain } from '../domains/service.js';
-import { ensure, oid } from '../../utils/core.js';
+import { ensure, oid, atomic } from '../../utils/core.js';
 import { services } from '../../constants/index.js';
 export const tenantRoutes = Router();
 tenantRoutes.use(permit('SUPER_ADMIN'));
+tenantRoutes.get('/website', wrap(async (req, res) => { res.json(await readWebsite(req, true)); }));
+tenantRoutes.patch('/website', wrap(async (req, res) => { res.json(await saveWebsite(req)); }));
 tenantRoutes.get('/', wrap(async (req, res) => { res.json(req.tenant); }));
 tenantRoutes.patch('/branding', wrap(async (req, res) => {
-  const b = input(req, z.object({ logo: z.url().startsWith('https://').optional(), primaryColor: z.string().regex(/^#[a-f\d]{6}$/i), secondaryColor: z.string().regex(/^#[a-f\d]{6}$/i) }).strict());
-  const tenant = await Tenant.findByIdAndUpdate(req.tenant!._id, { $set: { branding: b } }, { returnDocument: 'after' }); await Audit.create({ tenantId: req.tenant!._id, actorId: req.user!._id, action: 'BRANDING_UPDATE' }); res.json(tenant?.branding);
+  const b = input(req, z.object({ logo: imageUrl.or(z.literal('')).optional(), primaryColor: z.string().regex(/^#[a-f\d]{6}$/i), secondaryColor: z.string().regex(/^#[a-f\d]{6}$/i) }).strict());
+  const result = await atomic(async session => {
+    const tenant = await Tenant.findByIdAndUpdate(req.tenant!._id, { $set: { branding: b } }, { returnDocument: 'after', session });
+    await WebsiteContent.updateOne({ _id: `tenant:${req.tenant!._id}` }, { $set: { 'brand.logo': b.logo ?? '', 'brand.authLogo': b.logo ?? '', 'brand.primaryColor': b.primaryColor, 'brand.secondaryColor': b.secondaryColor }, $inc: { revision: 1 } }, { session });
+    await Audit.create([{ tenantId: req.tenant!._id, actorId: req.user!._id, action: 'BRANDING_UPDATE' }], { session }); return tenant?.branding;
+  }); res.json(result);
 }));
 tenantRoutes.get('/settings', wrap(async (req, res) => { res.json(await TenantSettings.findOne({ tenantId: req.tenant!._id })); }));
 tenantRoutes.patch('/settings', wrap(async (req, res) => {
   const b = input(req, z.object({ enabledServices: z.array(z.enum(services)).max(5), supportEmail: z.email().optional(), supportPhone: z.string().max(20).optional() }).strict());
-  res.json(await TenantSettings.findOneAndUpdate({ tenantId: req.tenant!._id }, { $set: b }, { returnDocument: 'after', runValidators: true })); await Audit.create({ tenantId: req.tenant!._id, actorId: req.user!._id, action: 'SETTINGS_UPDATE' });
+  const result = await atomic(async session => {
+    const settings = await TenantSettings.findOneAndUpdate({ tenantId: req.tenant!._id }, { $set: b }, { returnDocument: 'after', runValidators: true, session });
+    const support = { ...(b.supportEmail !== undefined ? { 'brand.support.email': b.supportEmail } : {}), ...(b.supportPhone !== undefined ? { 'brand.support.phone': b.supportPhone } : {}) };
+    if (Object.keys(support).length) await WebsiteContent.updateOne({ _id: `tenant:${req.tenant!._id}` }, { $set: support, $inc: { revision: 1 } }, { session });
+    await Audit.create([{ tenantId: req.tenant!._id, actorId: req.user!._id, action: 'SETTINGS_UPDATE' }], { session }); return settings;
+  }); res.json(result);
 }));
 tenantRoutes.get('/domains', wrap(async (req, res) => { res.json(await TenantDomain.find({ tenantId: req.tenant!._id })); }));
 tenantRoutes.post('/domains', wrap(async (req, res) => { const b = input(req, z.object({ hostname: z.string().max(253) }).strict()); res.status(201).json(await addDomain(String(req.tenant!._id), b.hostname, String(req.user!._id))); }));

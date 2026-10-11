@@ -12,6 +12,7 @@
 | Transaction reports | Explicit audited platform aggregates | Own tenant | Self/direct Retailers | Self |
 | Commission earnings | Platform aggregates | Tenant | Own | Own |
 | Branding/domains/settings/rules | Explicit domain administration | Own tenant | No | No |
+| Public website content editing | Platform website only | Own tenant website | No | No |
 | Support | No tenant impersonation | Own tenant tickets | Own tickets | Own tickets |
 
 Developer is a platform scope, not a wildcard tenant token. Tenant APIs reject Developer tokens and mismatched tenant tokens. Creation stores actual creator and business parent separately, always creates the wallet in the same transaction, and validates parent roles. Roles, tenant IDs, parents, wallet balances and password hashes are not accepted by generic profile update endpoints.

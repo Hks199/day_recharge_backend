@@ -92,6 +92,63 @@ describe('Platform provisioning and verified domains', () => {
     expect((await request(app).get('/api/public/tenant-config').set('Host', 'a.test').set('Origin', 'http://b.test')).status).toBe(403);
   });
 });
+describe('Public website content', () => {
+  it('serves backend defaults without writing on public reads and omits private metadata', async () => {
+    for (const [host, prefix, name] of [['platform.test', '/api/platform', 'Day Recharge'], ['a.test', '/api', 'Tenant A']]) {
+      const result = await request(app).get(`${prefix}/public/website`).set('Host', host!);
+      expect(result.status).toBe(200); expect(result.body.brand.name).toBe(name);
+      expect(result.body.values['home.h1.53']).toBe('Power Your Business');
+      expect(result.body.fields).toBeUndefined(); expect(result.body._id).toBeUndefined();
+    }
+    expect(await models.WebsiteContent.countDocuments()).toBe(0);
+    expect((await request(app).get('/api/public/website').set('Host', 'evil.test')).status).toBe(404);
+    expect((await request(app).get('/api/platform/public/website').set('Host', 'a.test')).status).toBe(404);
+  });
+  it('persists one indexed document, isolates tenants, validates writes, and prevents lost updates', async () => {
+    const initial = await api(ownerA, 'get', '/api/tenant/website'); expect(initial.status).toBe(200);
+    const { revision, brand, values } = initial.body;
+    const payload = { revision, brand: { ...brand, name: 'Dynamic business', logo: '/images/recharge.png', support: { email: 'website@example.test', phone: '9876543210' } }, values: { ...values, 'home.h1.53': 'Backend controlled headline', 'terms.text.2': 'Dynamic terms for {{brand}}.' } };
+    const writes = await Promise.all([api(ownerA, 'patch', '/api/tenant/website').send(payload), api(ownerA, 'patch', '/api/tenant/website').send(payload)]);
+    expect(writes.map(r => r.status).sort()).toEqual([200,409]);
+    const publicA = await request(app).get('/api/public/website').set('Host', 'a.test');
+    expect(publicA.body.brand.name).toBe('Dynamic business'); expect(publicA.body.brand.logo).toBe('/images/recharge.png');
+    expect(publicA.body.values['home.h1.53']).toBe('Backend controlled headline'); expect(publicA.body.revision).toBe(1);
+    const publicB = await request(app).get('/api/public/website').set('Host', 'b.test'); expect(publicB.body.brand.name).toBe('Tenant B'); expect(publicB.body.values['home.h1.53']).toBe('Power Your Business');
+    expect((await api({ ...ownerA, host: 'b.test' }, 'patch', '/api/tenant/website').send(payload)).status).toBe(403);
+    expect((await request(app).patch('/api/tenant/website').set('Host', 'a.test').send(payload)).status).toBe(401);
+    for (const bad of [
+      { ...payload, tenantId: tenantB },
+      { ...payload, brand: { ...brand, logo: 'javascript:alert(1)' } },
+      { ...payload, brand: { ...brand, logo: 'https://dayrecharge.com/logo.png' } },
+      { ...payload, values: { ...values, 'navigation.to.1': '//dayrecharge.com' } },
+      { ...payload, values: { ...values, '$unknown': 'injected' } },
+    ]) expect((await api(ownerA, 'patch', '/api/tenant/website').send(bad)).status).toBe(400);
+    expect(await models.WebsiteContent.countDocuments()).toBe(1);
+    expect((await api(ownerA, 'get', '/api/tenant/website')).body.revision).toBe(1);
+    expect(await models.Audit.exists({ action: 'WEBSITE_UPDATE', tenantId: tenantA })).toBeTruthy();
+  });
+  it('keeps legacy branding and support updates synchronized and versioned', async () => {
+    const before = await api(ownerA, 'get', '/api/tenant/website');
+    expect((await api(ownerA, 'patch', '/api/tenant/branding').send({ logo: '/images/dth.png', primaryColor: '#123456', secondaryColor: '#654321' })).status).toBe(200);
+    const settings = await api(ownerA, 'get', '/api/tenant/settings');
+    expect((await api(ownerA, 'patch', '/api/tenant/settings').send({ enabledServices: settings.body.enabledServices, supportEmail: 'updated@example.test', supportPhone: '+919876543210' })).status).toBe(200);
+    const after = await api(ownerA, 'get', '/api/tenant/website');
+    expect(after.body.revision).toBe(before.body.revision + 2);
+    expect(after.body.brand.logo).toBe('/images/dth.png'); expect(after.body.brand.authLogo).toBe('/images/dth.png');
+    expect(after.body.brand.support.email).toBe('updated@example.test'); expect(after.body.values['home.h1.53']).toBe('Backend controlled headline');
+    const legacyPublic = await request(app).get('/api/public/tenant-config').set('Host', 'a.test');
+    expect(legacyPublic.body.name).toBe(after.body.brand.name); expect(legacyPublic.body.logo).toBe('/images/dth.png');
+  });
+  it('allows a developer to edit only the platform website', async () => {
+    const initial = await api(developer, 'get', '/api/platform/website');
+    const { revision, brand, values } = initial.body;
+    expect(initial.body.fields.length).toBeGreaterThan(200);
+    expect((await api(developer, 'patch', '/api/platform/website').send({ revision, brand: { ...brand, address: 'Updated platform address' }, values })).status).toBe(200);
+    expect((await request(app).get('/api/platform/public/website').set('Host', 'platform.test')).body.brand.address).toBe('Updated platform address');
+    expect((await request(app).get('/api/public/website').set('Host', 'a.test')).body.brand.address).not.toBe('Updated platform address');
+  });
+});
+
 describe('Role hierarchy and isolation', () => {
   it('allows Super Admin to create Distributor and direct Retailer', async () => { distributor = await create(ownerA, 'distributors', 'DistributorOne'); distributor2 = await create(ownerA, 'distributors', 'DistributorTwo'); directRetailer = await create(ownerA, 'retailers', 'DirectRetailer'); });
   it('allows Distributor to create Retailer with a wallet and correct parent', async () => { retailer = await create(distributor, 'retailers', 'RetailerOne'); const user = await models.User.findById(retailer.id); expect(String(user?.parentId)).toBe(distributor.id); expect(String(user?.createdBy)).toBe(distributor.id); expect(await balance(retailer)).toBe(0); });
@@ -108,6 +165,8 @@ describe('Role hierarchy and isolation', () => {
     expect((await api({ ...ownerA, host: 'platform.test' }, 'get', '/api/platform/tenants')).status).toBe(403);
   });
   it('rejects unrelated downline management, reports and transfers', async () => {
+    expect((await api(distributor2, 'get', '/api/tenant/website')).status).toBe(403);
+    expect((await api(retailer, 'patch', '/api/tenant/website').send({})).status).toBe(403);
     expect((await api(distributor2, 'get', `/api/users/${retailer.id}`)).status).toBe(403);
     expect((await api(distributor2, 'patch', `/api/users/${retailer.id}/status`).send({ status: 'BLOCKED' })).status).toBe(403);
     expect((await api(distributor2, 'post', '/api/wallet/transfers').set('Idempotency-Key', 'invalid-transfer').send({ toUserId: retailer.id, amountMinor: 1000 })).status).toBe(403);
