@@ -11,7 +11,7 @@ const schema = z.object({
   WEBHOOK_SECRET: z.string().min(32),
   PLATFORM_HOSTS: z.string().default('localhost'),
   SHARED_API_HOSTS: z.string().default('api.localhost'),
-  PLATFORM_ORIGINS: z.string().default('http://localhost:3000'),
+  PLATFORM_ORIGINS: z.string().default('http://localhost:3000,http://localhost:5179,http://platform.localhost:5179'),
   TRUSTED_PROXIES: z.string().default(''),
   COOKIE_SECURE: z.enum(['true', 'false']).default('true'),
   LOG_LEVEL: z.string().default('info'),

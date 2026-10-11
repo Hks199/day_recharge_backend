@@ -17,6 +17,10 @@ Before running `npm run dev` on the host, start Docker Desktop and run `docker c
 
 ## Protected bootstrap
 
+For the local frontend, keep `PLATFORM_HOSTS=localhost,platform.localhost` and `PLATFORM_ORIGINS=http://localhost:3000,http://localhost:5179,http://platform.localhost:5179` in the backend `.env`. Origins include the protocol and port. Restart the backend after changing `.env`. Production deployments must explicitly set their own platform hosts and HTTPS origins.
+
+On Windows, run `npm run setup:admin` from the backend directory. It prompts for your name, email, phone and a password (with hidden input and confirmation), then creates the first Developer using the existing bootstrap command. Start the configured MongoDB replica set first. No default password is supplied. After setup, start the backend with `npm run dev` and sign in at `http://localhost:5179/login` using your chosen credentials. Existing Developer accounts are never overwritten. Credentials are passed through the child process environment and removed from the setup process afterwards; they are not saved in source files or command history.
+
 Set `BOOTSTRAP_NAME`, `BOOTSTRAP_EMAIL`, `BOOTSTRAP_PHONE`, `BOOTSTRAP_PASSWORD` in the process environment. Passwords must have 12–128 characters. Run `npm run bootstrap` outside Docker, or pass these environment variables with `docker compose exec -e BOOTSTRAP_NAME -e BOOTSTRAP_EMAIL -e BOOTSTRAP_PHONE -e BOOTSTRAP_PASSWORD api node dist/scripts/bootstrap.js`. Clear the password from the environment afterwards. Do not put credentials in source files or command history. Bootstrap refuses to run if a Developer exists. There is no public registration endpoint.
 
 ## Provision a tenant
