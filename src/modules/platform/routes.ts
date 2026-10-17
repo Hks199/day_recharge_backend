@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { readWebsite, saveWebsite } from '../website/service.js';
+import { createImageUpload } from '../website/uploads.js';
 import { WebsiteContent } from '../../models/website-content.model.js';
 import { z } from 'zod';
 import { authenticate, permit, wrap } from '../../middleware/security.js';
@@ -15,6 +16,7 @@ platformRoutes.use(authenticate, permit('DEVELOPER'));
 platformRoutes.use((req, _res, next) => { void Audit.create({ actorId: req.user!._id, action: `PLATFORM_${req.method}`, targetId: req.path, requestId: req.requestId }).then(() => next(), next); });
 platformRoutes.get('/website', wrap(async (req, res) => { res.json(await readWebsite(req, true)); }));
 platformRoutes.patch('/website', wrap(async (req, res) => { res.json(await saveWebsite(req)); }));
+platformRoutes.post('/website/images/upload', wrap(async (req, res) => { res.json(await createImageUpload(req)); }));
 platformRoutes.get('/plans', wrap(async (_req, res) => { res.json(await Plan.find().limit(100)); }));
 const planInput = z.object({ name: z.string().min(2).max(100), priceMinor: z.number().int().min(0).max(1000000000), durationDays: z.number().int().min(1).max(3660), features: z.array(z.string().max(64)).max(50) }).strict();
 platformRoutes.post('/plans', wrap(async (req, res) => { const plan = await Plan.create(input(req, planInput)); await Audit.create({ actorId: req.user!._id, action: 'PLAN_CREATE', targetId: String(plan._id) }); res.status(201).json(plan); }));

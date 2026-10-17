@@ -13,6 +13,7 @@ import {
   type WebsiteBrand,
 } from "./schema.js";
 import { ensure, atomic } from "../../utils/core.js";
+import { derivedDateFields, withFormattedDates } from './editor-metadata.js';
 export const websiteScope = (req: Request) =>
   req.tenant ? `tenant:${req.tenant._id}` : "platform";
 export async function readWebsite(req: Request, editor = false) {
@@ -29,9 +30,6 @@ export async function readWebsite(req: Request, editor = false) {
     logo: tenant
       ? (tenant.branding?.logo ?? "")
       : "/images/day-recharge-logo.jpg",
-    authLogo: tenant
-      ? (tenant.branding?.logo ?? "")
-      : "/images/day-recharge-login-logo.png",
     tagline: "RECHARGE. CONNECT. GROW.",
     primaryColor: tenant?.branding?.primaryColor ?? "#2563eb",
     secondaryColor: tenant?.branding?.secondaryColor ?? "#0d9488",
@@ -48,13 +46,16 @@ export async function readWebsite(req: Request, editor = false) {
   };
   return {
     revision: document?.revision ?? 0,
-    brand,
-    values: { ...defaultValues, ...document?.values },
-    ...(editor ? { fields: websiteFields } : {}),
+    brand: { ...brand, authLogo: brand.logo },
+    values: withFormattedDates({ ...defaultValues, ...document?.values }),
+    ...(editor ? { fields: websiteFields.filter(field => !derivedDateFields.has(field.key)) } : {}),
   };
 }
 export async function saveWebsite(req: Request) {
   const data = websiteInput.parse(req.body);
+  // Drop the legacy second logo from persisted documents on their next save.
+  delete data.brand.authLogo;
+  data.values = withFormattedDates(data.values);
   await atomic(async (session) => {
     const result = await WebsiteContent.findOneAndUpdate(
       { _id: websiteScope(req), revision: data.revision },

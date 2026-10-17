@@ -33,7 +33,8 @@ export const websiteBrandSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
     logo: imageUrl.or(z.literal("")),
-    authLogo: imageUrl.or(z.literal("")),
+    // Accepted for older clients only; the canonical logo is used everywhere.
+    authLogo: imageUrl.or(z.literal("")).optional(),
     tagline: z.string().max(150),
     primaryColor: color,
     secondaryColor: color,

@@ -14,6 +14,9 @@ process.env.PLATFORM_HOSTS = 'platform.test';
 process.env.PLATFORM_ORIGINS = 'http://platform.test';
 process.env.SHARED_API_HOSTS = 'api.test';
 process.env.LOG_LEVEL = 'silent';
+process.env.S3_REGION = '';
+process.env.S3_BUCKET = '';
+process.env.S3_PUBLIC_BASE_URL = '';
 process.env.PASSWORD_RESET_DELIVERY_URL = 'https://reset-delivery.test/send';
 process.env.PASSWORD_RESET_DELIVERY_SECRET = randomBytes(48).toString('hex');
 
@@ -101,17 +104,29 @@ describe('Public website content', () => {
       expect(result.body.fields).toBeUndefined(); expect(result.body._id).toBeUndefined();
     }
     expect(await models.WebsiteContent.countDocuments()).toBe(0);
+    const editor = await api(developer, 'get', '/api/platform/website');
+    expect(editor.status).toBe(200);
+    expect(editor.body.fields).toHaveLength(Object.keys(editor.body.values).length - 2);
+    expect(editor.body.fields.find((field: { key: string }) => field.key === 'home.h1.53')).toMatchObject({ label: 'Main headline', section: 'Welcome banner' });
+    for (const field of editor.body.fields) {
+      expect(field.label).not.toMatch(/^(h[1-6]|p|text|span|title|to|src|color|image|Link)$/);
+      expect(field.section.length).toBeGreaterThan(0); expect(field.description.length).toBeGreaterThan(10);
+      expect(Object.hasOwn(editor.body.values, field.key)).toBe(true);
+    }
+    expect(editor.body.fields.some((field: { key: string }) => field.key === 'terms.time.14')).toBe(false);
     expect((await request(app).get('/api/public/website').set('Host', 'evil.test')).status).toBe(404);
     expect((await request(app).get('/api/platform/public/website').set('Host', 'a.test')).status).toBe(404);
   });
   it('persists one indexed document, isolates tenants, validates writes, and prevents lost updates', async () => {
     const initial = await api(ownerA, 'get', '/api/tenant/website'); expect(initial.status).toBe(200);
     const { revision, brand, values } = initial.body;
-    const payload = { revision, brand: { ...brand, name: 'Dynamic business', logo: '/images/recharge.png', support: { email: 'website@example.test', phone: '9876543210' } }, values: { ...values, 'home.h1.53': 'Backend controlled headline', 'terms.text.2': 'Dynamic terms for {{brand}}.' } };
+    const payload = { revision, brand: { ...brand, name: 'Dynamic business', logo: '/images/recharge.png', authLogo: '/images/dth.png', support: { email: 'website@example.test', phone: '9876543210' } }, values: { ...values, 'home.h1.53': 'Backend controlled headline', 'terms.text.2': 'Dynamic terms for {{brand}}.' } };
     const writes = await Promise.all([api(ownerA, 'patch', '/api/tenant/website').send(payload), api(ownerA, 'patch', '/api/tenant/website').send(payload)]);
     expect(writes.map(r => r.status).sort()).toEqual([200,409]);
     const publicA = await request(app).get('/api/public/website').set('Host', 'a.test');
     expect(publicA.body.brand.name).toBe('Dynamic business'); expect(publicA.body.brand.logo).toBe('/images/recharge.png');
+    expect(publicA.body.brand.authLogo).toBe(publicA.body.brand.logo);
+    expect((await models.WebsiteContent.findById(`tenant:${tenantA}`).lean())?.brand.authLogo).toBeUndefined();
     expect(publicA.body.values['home.h1.53']).toBe('Backend controlled headline'); expect(publicA.body.revision).toBe(1);
     const publicB = await request(app).get('/api/public/website').set('Host', 'b.test'); expect(publicB.body.brand.name).toBe('Tenant B'); expect(publicB.body.values['home.h1.53']).toBe('Power Your Business');
     expect((await api({ ...ownerA, host: 'b.test' }, 'patch', '/api/tenant/website').send(payload)).status).toBe(403);
@@ -143,9 +158,23 @@ describe('Public website content', () => {
     const initial = await api(developer, 'get', '/api/platform/website');
     const { revision, brand, values } = initial.body;
     expect(initial.body.fields.length).toBeGreaterThan(200);
-    expect((await api(developer, 'patch', '/api/platform/website').send({ revision, brand: { ...brand, address: 'Updated platform address' }, values })).status).toBe(200);
+    const updatedValues = { ...values, 'about.h2.11': 'Our updated story', 'contact.h2.10': 'Write to our team', 'privacy.text.2': 'Updated privacy content', 'footer.p.3': 'Updated footer', 'navigation.label.4': 'Our story', 'auth.text.3': 'Welcome to your business', 'terms.dateTime.13': '2027-01-01', 'privacy.dateTime.11': '2027-02-02' };
+    const saved = await api(developer, 'patch', '/api/platform/website').send({ revision, brand: { ...brand, address: 'Updated platform address' }, values: updatedValues });
+    expect(saved.status).toBe(200);
+    const published = await request(app).get('/api/platform/public/website').set('Host', 'platform.test');
+    for (const key of ['about.h2.11', 'contact.h2.10', 'privacy.text.2', 'footer.p.3', 'navigation.label.4', 'auth.text.3']) expect(published.body.values[key]).toBe(updatedValues[key]);
+    expect(published.body.values['terms.time.14']).toBe('01 Jan 2027');
+    expect(published.body.values['privacy.time.12']).toBe('02 Feb 2027');
+    expect((await models.WebsiteContent.findById('platform').lean())?.values['terms.time.14']).toBe('01 Jan 2027');
     expect((await request(app).get('/api/platform/public/website').set('Host', 'platform.test')).body.brand.address).toBe('Updated platform address');
     expect((await request(app).get('/api/public/website').set('Host', 'a.test')).body.brand.address).not.toBe('Updated platform address');
+  });
+  it('validates owner uploads and reports storage configuration without touching AWS', async () => {
+    const body = { field: 'logo', contentType: 'image/png', size: 1024 };
+    const result = await api(developer, 'post', '/api/platform/website/images/upload').send(body);
+    expect(result.status).toBe(503); expect(result.body.error.code).toBe('IMAGE_STORAGE_NOT_CONFIGURED');
+    expect((await api(ownerA, 'post', '/api/tenant/website/images/upload').send({ ...body, size: 5242881 })).status).toBe(400);
+    expect((await api({ ...ownerA, host: 'b.test' }, 'post', '/api/tenant/website/images/upload').send(body)).status).toBe(403);
   });
 });
 
@@ -167,6 +196,9 @@ describe('Role hierarchy and isolation', () => {
   it('rejects unrelated downline management, reports and transfers', async () => {
     expect((await api(distributor2, 'get', '/api/tenant/website')).status).toBe(403);
     expect((await api(retailer, 'patch', '/api/tenant/website').send({})).status).toBe(403);
+    expect((await api(distributor2, 'post', '/api/tenant/website/images/upload').send({})).status).toBe(403);
+    expect((await api(retailer, 'post', '/api/tenant/website/images/upload').send({})).status).toBe(403);
+    expect((await request(app).post('/api/platform/website/images/upload').set('Host', 'platform.test').send({})).status).toBe(401);
     expect((await api(distributor2, 'get', `/api/users/${retailer.id}`)).status).toBe(403);
     expect((await api(distributor2, 'patch', `/api/users/${retailer.id}/status`).send({ status: 'BLOCKED' })).status).toBe(403);
     expect((await api(distributor2, 'post', '/api/wallet/transfers').set('Idempotency-Key', 'invalid-transfer').send({ toUserId: retailer.id, amountMinor: 1000 })).status).toBe(403);

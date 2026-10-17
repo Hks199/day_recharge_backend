@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { readWebsite, saveWebsite } from '../website/service.js';
+import { createImageUpload } from '../website/uploads.js';
 import { WebsiteContent } from '../../models/website-content.model.js';
 import { imageUrl } from '../website/schema.js';
 import { z } from 'zod';
@@ -13,12 +14,13 @@ export const tenantRoutes = Router();
 tenantRoutes.use(permit('SUPER_ADMIN'));
 tenantRoutes.get('/website', wrap(async (req, res) => { res.json(await readWebsite(req, true)); }));
 tenantRoutes.patch('/website', wrap(async (req, res) => { res.json(await saveWebsite(req)); }));
+tenantRoutes.post('/website/images/upload', wrap(async (req, res) => { res.json(await createImageUpload(req)); }));
 tenantRoutes.get('/', wrap(async (req, res) => { res.json(req.tenant); }));
 tenantRoutes.patch('/branding', wrap(async (req, res) => {
   const b = input(req, z.object({ logo: imageUrl.or(z.literal('')).optional(), primaryColor: z.string().regex(/^#[a-f\d]{6}$/i), secondaryColor: z.string().regex(/^#[a-f\d]{6}$/i) }).strict());
   const result = await atomic(async session => {
     const tenant = await Tenant.findByIdAndUpdate(req.tenant!._id, { $set: { branding: b } }, { returnDocument: 'after', session });
-    await WebsiteContent.updateOne({ _id: `tenant:${req.tenant!._id}` }, { $set: { 'brand.logo': b.logo ?? '', 'brand.authLogo': b.logo ?? '', 'brand.primaryColor': b.primaryColor, 'brand.secondaryColor': b.secondaryColor }, $inc: { revision: 1 } }, { session });
+    await WebsiteContent.updateOne({ _id: `tenant:${req.tenant!._id}` }, { $set: { 'brand.logo': b.logo ?? '', 'brand.primaryColor': b.primaryColor, 'brand.secondaryColor': b.secondaryColor }, $unset: { 'brand.authLogo': '' }, $inc: { revision: 1 } }, { session });
     await Audit.create([{ tenantId: req.tenant!._id, actorId: req.user!._id, action: 'BRANDING_UPDATE' }], { session }); return tenant?.branding;
   }); res.json(result);
 }));

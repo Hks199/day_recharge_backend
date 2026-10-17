@@ -1,4 +1,5 @@
 // Backend-owned public website copy and editable fields. Keys are stable content slots in the existing design.
+import { presentWebsiteFields } from './editor-metadata.js';
 export const defaultValues: Record<string, string> = {
   "home.title.1": "Prepaid Recharge",
   "home.image.2": "/images/recharge.png",
@@ -253,7 +254,7 @@ export const defaultValues: Record<string, string> = {
   "home.roleJoin": "Join Now",
   "home.roleContact": "Contact Us",
 };
-export const websiteFields = [
+const contentFields = [
   {
     key: "home.title.1",
     group: "home",
@@ -263,7 +264,7 @@ export const websiteFields = [
   {
     key: "home.image.2",
     group: "home",
-    label: "image",
+    label: "Prepaid recharge image",
     type: "image",
   },
   {
@@ -281,7 +282,7 @@ export const websiteFields = [
   {
     key: "home.image.5",
     group: "home",
-    label: "image",
+    label: "Postpaid bill image",
     type: "image",
   },
   {
@@ -299,7 +300,7 @@ export const websiteFields = [
   {
     key: "home.image.8",
     group: "home",
-    label: "image",
+    label: "DTH recharge image",
     type: "image",
   },
   {
@@ -317,7 +318,7 @@ export const websiteFields = [
   {
     key: "home.image.11",
     group: "home",
-    label: "image",
+    label: "Electricity image",
     type: "image",
   },
   {
@@ -335,7 +336,7 @@ export const websiteFields = [
   {
     key: "home.image.14",
     group: "home",
-    label: "image",
+    label: "Bill payments image",
     type: "image",
   },
   {
@@ -353,7 +354,7 @@ export const websiteFields = [
   {
     key: "home.image.17",
     group: "home",
-    label: "image",
+    label: "Wallet transfers image",
     type: "image",
   },
   {
@@ -677,7 +678,7 @@ export const websiteFields = [
   {
     key: "home.src.71",
     group: "home",
-    label: "src",
+    label: "Home hero image",
     type: "image",
   },
   {
@@ -1587,3 +1588,4 @@ export const websiteFields = [
     type: "text",
   },
 ] as const;
+export const websiteFields = presentWebsiteFields(contentFields, defaultValues);

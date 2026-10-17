@@ -15,6 +15,9 @@ const schema = z.object({
   TRUSTED_PROXIES: z.string().default(''),
   COOKIE_SECURE: z.enum(['true', 'false']).default('true'),
   LOG_LEVEL: z.string().default('info'),
+  S3_REGION: z.string().default(''),
+  S3_BUCKET: z.string().default(''),
+  S3_PUBLIC_BASE_URL: z.string().default(''),
   MOCK_PROVIDER_ENABLED: z.enum(['true', 'false']).default('false'),
   PASSWORD_RESET_DELIVERY_URL: z.preprocess(v => v === '' ? undefined : v, z.url().optional()),
   PASSWORD_RESET_DELIVERY_SECRET: z.preprocess(v => v === '' ? undefined : v, z.string().min(32).optional())

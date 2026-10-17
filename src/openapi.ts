@@ -3,6 +3,7 @@ import { person } from './validators/index.js';
 import { provisionInput } from './modules/platform/service.js';
 import { rechargeInput } from './modules/recharges/validation.js';
 import { websiteInput } from './modules/website/schema.js';
+import { uploadInput } from './modules/website/uploads.js';
 type Json = Record<string, unknown>;
 const str = { type: 'string' }, id = { type: 'string', pattern: '^[a-fA-F0-9]{24}$' }, date = { type: 'string', format: 'date-time' };
 const money = { type: 'integer', minimum: 0, maximum: 1_000_000_000_000, description: 'INR paise, integer only.' };
@@ -64,6 +65,7 @@ for (const prefix of ['/api', '/api/platform']) route('get', `${prefix}/public/w
 for (const prefix of ['/api/tenant', '/api/platform']) {
   route('get', `${prefix}/website`, 'Owner reads website and editable field definitions', obj({}));
   route('patch', `${prefix}/website`, 'Owner publishes website; stale revision returns 409', obj({}), serialize(websiteInput));
+  route('post', `${prefix}/website/images/upload`, 'Owner requests a scoped S3 POST upload valid for 120 seconds; maximum image size 5 MB', obj({ url: str, fields: obj({}), publicUrl: str, expiresIn: { type: 'integer' } }), serialize(uploadInput));
 }
 for (const prefix of ['/api/auth', '/api/platform/auth']) {
   route('post', `${prefix}/login`, 'Login and set HTTP-only refresh cookie', ref('SessionResult'), obj({ email: { type: 'string', format: 'email' }, password: str }, ['email', 'password']), { public: true });
